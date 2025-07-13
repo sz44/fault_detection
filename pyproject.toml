@@ -1,0 +1,10 @@
+[project]
+name = "fault-detection"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.116.1",
+    "sqlmodel>=0.0.24",
+]
