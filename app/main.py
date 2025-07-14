@@ -3,18 +3,15 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlmodel import Session, SQLModel, create_engine
 from contextlib import asynccontextmanager
 
 from models import AxisData
+from sqlmodel import Session, SQLModel, create_engine
+from config import get_settings
 
+database = get_settings().DATABASE_URL
 
-sqlite_file_name = "database.db"
-sqlite_url = f"sqlite:///{sqlite_file_name}"
-connect_args = {"check_same_thread": False}
-
-engine = create_engine(sqlite_url, connect_args=connect_args)
-
+engine = create_engine(database)
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
