@@ -10,4 +10,6 @@ wheels/
 .venv
 
 .env
-.db
+database.db
+
+example.py

@@ -1,4 +1,6 @@
 import json
+import aioredis
+
 from typing import Annotated
 from fastapi import Depends, FastAPI, WebSocket
 from fastapi.responses import FileResponse
@@ -8,8 +10,14 @@ from contextlib import asynccontextmanager
 from models import AxisData
 from sqlmodel import Session, SQLModel, create_engine
 from config import get_settings
+from redis_config import initialize_redis
+import logging
 
-database = get_settings().DATABASE_URL
+log = logging.getLogger(__name__)
+
+database = get_settings().POSTGRES_URL
+
+redis = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
 
 engine = create_engine(database)
 
@@ -28,6 +36,7 @@ SessionDep = Annotated[Session, Depends(get_session)]
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_db_and_tables()
+    await initialize_redis(redis, log)
     yield
 
 
@@ -44,8 +53,8 @@ async def get():
 @app.get("/component/test-add")
 async def test_add_axis_data(session: SessionDep):
     test_data = AxisData(
-        component_id="AXIS-001",
-        component_name="Test Axis",
+        sensor_id=1,
+        device_id=1,
         timestamp="2024-06-01T12:00:00Z",
         status="idle",
         position=100.0,
