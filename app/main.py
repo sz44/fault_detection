@@ -1,90 +1,177 @@
-import json
-import aioredis
-
-from typing import Annotated
-from fastapi import Depends, FastAPI, WebSocket
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
-
-from models import AxisData
-from sqlmodel import Session, SQLModel, create_engine
-from config import get_settings
-from redis_config import initialize_redis
+import redis.asyncio as redis
+from pydantic import BaseModel, TypeAdapter
+from typing import Union, Literal, Dict
+import json
+from fastapi import FastAPI, WebSocket 
 import logging
 
 log = logging.getLogger(__name__)
 
-database = get_settings().POSTGRES_URL
+r = redis.Redis(host='localhost', port=6379)
 
-redis = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
-
-engine = create_engine(database)
-
-def create_db_and_tables():
-    SQLModel.metadata.create_all(engine)
+RETENTION_MS = 600_000
 
 
-def get_session():
-    with Session(engine) as session:
-        yield session
-
-
-SessionDep = Annotated[Session, Depends(get_session)]
+async def initialize_redis():
+    keys = [
+        "sensor:1:device:1:position",
+        "sensor:2:device:1:speed",
+        "sensor:3:device:1:acceleration",
+        "sensor:4:device:1:load",
+        "sensor:7:device:2:grip_force",
+        "sensor:8:device:2:distance"
+    ]
+    for key in keys:
+        try:
+            await r.execute_command(
+                "TS.CREATE", key, "RETENTION", RETENTION_MS, "DUPLICATE_POLICY", "first"
+            )
+        except redis.ResponseError as e:
+            log.info(f"Timeseries already exists or error: {e}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    create_db_and_tables()
-    await initialize_redis(redis, log)
+    await initialize_redis()
     yield
 
 
 app = FastAPI(lifespan=lifespan)
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+# ----- Payload Models -----
 
 
-@app.get("/")
-async def get():
-    return FileResponse("app/static/index.html")
+class DistancePayload(BaseModel):
+    sensor_type: Literal['distance']
+    sensor_id: int
+    device_id: int
+    timestamp: int
+    data: Dict[Literal['distance'], float]
+    status: str = "active"
 
 
-@app.get("/component/test-add")
-async def test_add_axis_data(session: SessionDep):
-    test_data = AxisData(
-        sensor_id=1,
-        device_id=1,
-        timestamp="2024-06-01T12:00:00Z",
-        status="idle",
-        position=100.0,
-        speed=10.0,
-        acceleration=1.5,
-        load=50.0,
-    )
-    session.add(test_data)
-    session.commit()
-    session.refresh(test_data)
-    return {"message": "AxisData added", "id": test_data.id}
+class GripForcePayload(BaseModel):
+    sensor_type: Literal['grip_force']
+    sensor_id: int
+    device_id: int
+    timestamp: int
+    data: Dict[Literal['force'], float]
+    status: str = "active"
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
+class AxisPayload(BaseModel):
+    sensor_type: Literal['axis']
+    sensor_id: int
+    device_id: int
+    timestamp: int
+    data: Dict[Literal['position', 'speed', 'acceleration', 'load'], float]
+    status: str = "active"
+
+
+class AirPressurePayload(BaseModel):
+    sensor_type: Literal['air_pressure']
+    sensor_id: int
+    device_id: int
+    timestamp: int
+    data: Dict[Literal['pressure'], float]
+    status: str = "active"
+
+
+# Union type for all sensor payloads
+SensorPayload = Union[DistancePayload, GripForcePayload, AxisPayload, AirPressurePayload]
+SensorPayloadAdapter = TypeAdapter(SensorPayload)
+
+# ----- Redis Write Function -----
+async def add_sensor_data(payload: SensorPayload):
+    """Add sensor data to Redis time series"""
+
+    if payload.sensor_type == 'distance':
+        key = f"sensor:{payload.sensor_id}:device:{payload.device_id}:distance"
+        value = payload.data['distance']
+        await r.execute_command('TS.ADD', key, payload.timestamp, value)
+
+    elif payload.sensor_type == 'grip_force':
+        key = f"sensor:{payload.sensor_id}:device:{payload.device_id}:grip_force"
+        value = payload.data['force']
+        await r.execute_command('TS.ADD', key, payload.timestamp, value)
+
+    elif payload.sensor_type == 'axis':
+        assert isinstance(payload, AxisPayload)  
+        # Add each axis measurement separately
+        for metric in ['position', 'speed', 'acceleration', 'load']:
+            key = f"sensor:{payload.sensor_id}:device:{payload.device_id}:{metric}"
+            value = payload.data[metric]
+            await r.execute_command('TS.ADD', key, payload.timestamp, value)
+
+    elif payload.sensor_type == 'air_pressure':
+        key = f"sensor:{payload.sensor_id}:device:{payload.device_id}:pressure"
+        value = payload.data['pressure']
+        await r.execute_command('TS.ADD', key, payload.timestamp, value)
+
+# ----- WebSocket Endpoint -----
+
+
+@app.websocket('/ws')
+async def websocket_endpoint(ws: WebSocket):
+    await ws.accept()
     while True:
-        data = await websocket.receive_text()
-        # Parse JSON data
         try:
-            payload = json.loads(data)
-            axis_data = AxisData(**payload)
+            raw = await ws.receive_text()
+            data = json.loads(raw)
+            payload = SensorPayloadAdapter.validate_python(data)
+            await add_sensor_data(payload)
+            await ws.send_text('ok')
         except Exception as e:
-            await websocket.send_text(f"Invalid data: {e}")
-            continue
+            log.error(f'WebSocket error: {e}')
+            await ws.send_text(f'error: {str(e)}')
 
-        # Save to DB
-        with Session(engine) as session:
-            session.add(axis_data)
-            session.commit()
-            session.refresh(axis_data)
+# ----- Example Usage -----
+"""
+Example JSON payloads that would be sent via WebSocket:
 
-        await websocket.send_text(f"Saved data with id: {axis_data.id}")
+Distance sensor:
+{
+    "sensor_type": "distance",
+    "sensor_id": 1,
+    "device_id": 100,
+    "timestamp": "2025-07-18T10:30:00Z",
+    "data": {"distance": 15.5},
+    "status": "active"
+}
+
+Grip force sensor:
+{
+    "sensor_type": "grip_force",
+    "sensor_id": 2,
+    "device_id": 100,
+    "timestamp": "2025-07-18T10:30:00Z",
+    "data": {"force": 25.3},
+    "status": "active"
+}
+
+Axis sensor:
+{
+    "sensor_type": "axis",
+    "sensor_id": 3,
+    "device_id": 100,
+    "timestamp": "2025-07-18T10:30:00Z",
+    "data": {
+        "position": 100.0,
+        "speed": 5.2,
+        "acceleration": 0.8,
+        "load": 75.5
+    },
+    "status": "active"
+}
+
+Air pressure sensor:
+{
+    "sensor_type": "air_pressure",
+    "sensor_id": 4,
+    "device_id": 100,
+    "timestamp": "2025-07-18T10:30:00Z",
+    "data": {"pressure": 1013.25},
+    "status": "active"
+}
+"""

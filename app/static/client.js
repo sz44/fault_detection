@@ -1,18 +1,25 @@
 const ws = new WebSocket("ws://localhost:8000/ws");
 
-const send = document.getElementById("send");
-send.addEventListener("click", sendMessage);
+const sendDistanceBtn = document.getElementById("sendDistance");
+sendDistanceBtn.addEventListener("click", sendDistace);
 
-function sendMessage(event) {
+let keys = [
+    "sensor:1:device:1:position",
+    "sensor:2:device:1:speed",
+    "sensor:3:device:1:acceleration",
+    "sensor:4:device:1:load",
+    "sensor:7:device:2:grip_force",
+    "sensor:8:device:2:distance"
+]
+
+function sendDistance(event) {
 	let data = {
-		component_id: "component_1",
-		component_name: "gripper_tool_x",
-        timestamp: new Date().toISOString(),
-		status: "idle",
-		position: 100,
-		speed: 50,
-		acceleration: 5,
-		load: 75,
+    	sensor_type: "distance",
+    	sensor_id: 8,
+    	device_id: 2,
+        timestamp: Date.now(),
+    	data: {"distance": 15.5},
+    	status: "active"
 	};
     ws.send(JSON.stringify(data));
     console.log("Sent:", data);
