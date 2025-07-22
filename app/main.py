@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 import datetime
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from websockets import connect
 import redis.asyncio as redis
 from pydantic import BaseModel, TypeAdapter
 from typing import Union, Literal, Dict
@@ -174,6 +173,7 @@ async def analysis_worker():
         await asyncio.sleep(10)  # Adjust the sleep time as needed
     
 connected_clients: set[WebSocket] = set()
+last_sent_ts: Dict[str, str] = {}
 
 async def dashboard_update_worker():
     """Broadcast latest sensor data to all connected dashboard clients."""
@@ -190,6 +190,12 @@ async def dashboard_update_worker():
         except Exception as e:
             log.error(f"Redis TS.GET error: {e}")
             json_str = json.dumps({"error": str(e)})
+        
+        if data[0] == last_sent_ts.get(key):
+            log.info(f"No new data for {key}, skipping broadcast")
+            await asyncio.sleep(1)
+            continue
+        last_sent_ts[key] = data[0]
 
         to_remove = []
         for client in connected_clients:
