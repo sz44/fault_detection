@@ -164,8 +164,8 @@ async def analysis_worker():
 async def dashboard_update_worker(data):
     """Worker to update dashboard with latest sensor data. sending data to websocket clients."""
 
-    async with connect("ws://localhost:8000/") as websocket:
-        await websocket.send(json.dumps(data))
+    # async with connect("ws://localhost:8000/dashboard") as websocket:
+        # await websocket.send(data)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -213,7 +213,7 @@ async def websocket_endpoint(ws: WebSocket):
                 data = json.loads(raw)
                 payload = SensorPayloadAdapter.validate_python(data)
                 await add_sensor_data(payload)
-                
+                await dashboard_update_worker(raw)  
                 await ws.send_text("ok")
             except Exception as e:
                 log.error(f"WebSocket error: {e}")

@@ -8,14 +8,14 @@ let keys = [
     "sensor:2:device:1:speed",
     "sensor:3:device:1:acceleration",
     "sensor:4:device:1:load",
-    "sensor:7:device:2:grip_force",
-    "sensor:8:device:2:distance"
+    "sensor:5:device:2:grip_force",
+    "sensor:6:device:2:distance"
 ]
 
 function sendDistance(event) {
 	let data = {
     	sensor_type: "distance",
-    	sensor_id: 8,
+    	sensor_id: 6,
     	device_id: 2,
         timestamp: new Date().toISOString(),
     	data: {"distance": 15.5},
