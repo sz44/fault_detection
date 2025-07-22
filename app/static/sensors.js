@@ -1,7 +1,7 @@
 const ws = new WebSocket("ws://localhost:8000/ws");
 
-const sendDistanceBtn = document.getElementById("sendDistance");
-sendDistanceBtn.addEventListener("click", sendDistace);
+const sendDistanceBtn = document.getElementById("sendDistanceBtn");
+sendDistanceBtn.addEventListener("click", sendDistance);
 
 let keys = [
     "sensor:1:device:1:position",
@@ -17,7 +17,7 @@ function sendDistance(event) {
     	sensor_type: "distance",
     	sensor_id: 8,
     	device_id: 2,
-        timestamp: Date.now(),
+        timestamp: new Date().toISOString(),
     	data: {"distance": 15.5},
     	status: "active"
 	};
