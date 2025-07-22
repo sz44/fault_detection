@@ -1,10 +1,8 @@
-const ws = new WebSocket("ws://localhost:8000/ws");
-
 const sendDistanceBtn = document.getElementById("sendDistanceBtn");
 sendDistanceBtn.addEventListener("click", sendDistance);
 
 let keys = [
-    "sensor:1:device:1:position",
+	"sensor:1:device:1:position",
     "sensor:2:device:1:speed",
     "sensor:3:device:1:acceleration",
     "sensor:4:device:1:load",
@@ -12,9 +10,18 @@ let keys = [
     "sensor:6:device:2:distance"
 ]
 
+const ws = new WebSocket("ws://localhost:8000/ws");
+ws.onmessage = function (event) {
+	var messages = document.getElementById("messages");
+	var message = document.createElement("li");
+	var content = document.createTextNode(event.data);
+	message.appendChild(content);
+	messages.appendChild(message);
+};
+
 function sendDistance(event) {
 	let data = {
-    	sensor_type: "distance",
+		sensor_type: "distance",
     	sensor_id: 6,
     	device_id: 2,
         timestamp: new Date().toISOString(),
@@ -27,10 +34,3 @@ function sendDistance(event) {
 }
 
 
-ws.onmessage = function (event) {
-	var messages = document.getElementById("messages");
-	var message = document.createElement("li");
-	var content = document.createTextNode(event.data);
-	message.appendChild(content);
-	messages.appendChild(message);
-};

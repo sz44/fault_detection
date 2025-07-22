@@ -1,27 +1,51 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
-</head>
-<body>
-   <h2>dashboard</h2> 
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Document</title>
+	</head>
+	<body>
+		<h2>dashboard</h2>
 
-    <button id="send">send greeting</button>
-    <ul id="messages"></ul>
-   <script>
-         const ws = new WebSocket("ws://localhost:8000/ws_dashboard");
-         ws.onmessage = function(event) {
-              const messages = document.getElementById('messages');
-              const message = document.createElement('li');
-              message.textContent = event.data;
-              messages.appendChild(message);
-         };
-    
-         document.getElementById('send').addEventListener('click', function() {
-              ws.send("Hello from dashboard!");
-         });
-   </script>
-</body>
+		<button id="send">send greeting</button>
+		<ul id="messages"></ul>
+		<script>
+            let messages = document.getElementById("messages");
+			let data = fetch("http://localhost:8000/data/6/2/distance");
+
+            //return {"start": start_time, "end": end_time, "key": key, "data": data}
+			data
+				.then((response) => {
+					if (!response.ok) {
+						throw new Error("Network response was not ok");
+					}
+					return response.json();
+				})
+				.then((json) => {
+                    let data = json.data;
+                    data.forEach(element => {
+                        let message = document.createElement("li");
+                        let content = document.createTextNode(JSON.stringify(element));
+                        message.appendChild(content);
+                        messages.appendChild(message);
+                    });
+				})
+				.catch((error) => {
+					console.error("There was a problem with the fetch operation:", error);
+					let message = document.createElement("li");
+					let content = document.createTextNode("Error fetching data: " + error.message);
+					message.appendChild(content);
+					messages.appendChild(message);
+				});
+
+                const ws = new WebSocket("ws://localhost:8000/ws_dashboard");
+                ws.onmessage = function (event) {
+                    const messages = document.getElementById("messages");
+                    const message = document.createElement("li");
+                    message.textContent = event.data;
+                    messages.appendChild(message);
+                };
+		</script>
+	</body>
 </html>
