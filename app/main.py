@@ -7,7 +7,7 @@ import redis.asyncio as redis
 from pydantic import BaseModel, TypeAdapter
 from typing import Union, Literal, Dict
 import json
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import logging
 import asyncio
 
@@ -38,9 +38,21 @@ async def initialize_redis():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await initialize_redis()
-    yield
+    try:
+        await initialize_redis()
+    except Exception as e:
+        log.error(f"Redis init failed: {e}")
+        raise
 
+    worker_task = asyncio.create_task(dashboard_update_worker())
+    try:
+        yield
+    finally:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
 
 app = FastAPI(lifespan=lifespan)
 
@@ -161,11 +173,37 @@ async def analysis_worker():
 
         await asyncio.sleep(10)  # Adjust the sleep time as needed
     
-async def dashboard_update_worker(data):
-    """Worker to update dashboard with latest sensor data. sending data to websocket clients."""
+connected_clients: set[WebSocket] = set()
 
-    # async with connect("ws://localhost:8000/dashboard") as websocket:
-        # await websocket.send(data)
+async def dashboard_update_worker():
+    """Broadcast latest sensor data to all connected dashboard clients."""
+    while True:
+        sensor_id = 6
+        device_id = 2
+        metric = "distance"
+        key = f"sensor:{sensor_id}:device:{device_id}:{metric}"
+
+        try:
+            data = await r.execute_command("TS.GET", key)
+            data_serializable = [data[0], data[1].decode("utf-8")]
+            json_str = json.dumps(data_serializable)
+        except Exception as e:
+            log.error(f"Redis TS.GET error: {e}")
+            json_str = json.dumps({"error": str(e)})
+
+        to_remove = []
+        for client in connected_clients:
+            try:
+                await client.send_text(json_str)
+            except Exception as e:
+                log.warning(f"Send failed: {e}")
+                to_remove.append(client)
+
+        for client in to_remove:
+            connected_clients.remove(client)
+            log.info(f"Removed client. Total: {len(connected_clients)}")
+
+        await asyncio.sleep(1)  # broadcast rate
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -198,33 +236,42 @@ async def get_data(sensor_id: int, device_id: int, metric: str):
         log.error(f"Error fetching data for {key}: {e}")
         return {"error": str(e)}
 
-ws_clients = 0
+
+@app.websocket("/ws_dashboard")
+async def websocket_dashboard_endpoint(ws: WebSocket):
+    await ws.accept()
+    connected_clients.add(ws)
+    log.info(f"Client connected. Total clients: {len(connected_clients)}")
+    
+    try:
+        while True:
+            await asyncio.sleep(10)  # optional keep-alive or ping
+    except WebSocketDisconnect:
+        connected_clients.remove(ws)
+        log.info(f"Client disconnected. Total clients: {len(connected_clients)}")
+
+
 # ----- WebSocket Endpoint -----
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
-    global ws_clients 
-    ws_clients += 1
-    print(f"Client connected. Total clients: {ws_clients}")
-    try:
-        while True:
+    while True:
+        try:
+            raw = await ws.receive_text()
+            data = json.loads(raw)
+            payload = SensorPayloadAdapter.validate_python(data)
+            await add_sensor_data(payload)
+            await ws.send_text("ok")
+        except WebSocketDisconnect:
+            log.info("Sensor client disconnected.")
+            break
+        except Exception as e:
+            log.error(f"WebSocket error: {e}")
             try:
-                raw = await ws.receive_text()
-                data = json.loads(raw)
-                payload = SensorPayloadAdapter.validate_python(data)
-                await add_sensor_data(payload)
-                await dashboard_update_worker(raw)  
-                await ws.send_text("ok")
-            except Exception as e:
-                log.error(f"WebSocket error: {e}")
                 await ws.send_text(f"error: {str(e)}")
-    except Exception:
-        pass
-    finally:
-        ws_clients -= 1
-        print(f"Client disconnected. Total clients: {ws_clients}")
-
-
+            except Exception:
+                pass  # Connection might already be closed
+        
 # ----- Example Usage -----
 """
 Example JSON payloads that would be sent via WebSocket:

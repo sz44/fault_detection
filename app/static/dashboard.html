@@ -11,7 +11,7 @@
     <button id="send">send greeting</button>
     <ul id="messages"></ul>
    <script>
-         const ws = new WebSocket("ws://localhost:8000/ws");
+         const ws = new WebSocket("ws://localhost:8000/ws_dashboard");
          ws.onmessage = function(event) {
               const messages = document.getElementById('messages');
               const message = document.createElement('li');
