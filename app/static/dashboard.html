@@ -3,12 +3,16 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
 		<title>Document</title>
 	</head>
 	<body>
 		<h2>dashboard</h2>
-
-		<button id="send">send greeting</button>
+        <div style="width: 90%; max-width: 800px; margin: auto; padding-top: 30px;">
+            <canvas id="timeseriesChart"></canvas>
+        </div>
 		<ul id="messages"></ul>
 		<script>
             let messages = document.getElementById("messages");
@@ -24,12 +28,59 @@
 				})
 				.then((json) => {
                     let data = json.data;
-                    data.forEach(element => {
-                        let message = document.createElement("li");
-                        let content = document.createTextNode(JSON.stringify(element));
-                        message.appendChild(content);
-                        messages.appendChild(message);
-                    });
+                    const chartdata = data.map(([timestamp, value]) => ({
+                        x: new Date(timestamp),
+                        y: parseFloat(value)
+                    }));
+
+    // Chart configuration
+    const config = {
+      type: 'line',
+      data: {
+        datasets: [{
+          label: 'Sensor Value',
+          data: chartdata,
+          borderColor: 'rgba(75, 192, 192, 1)',
+          backgroundColor: 'rgba(75, 192, 192, 0.2)',
+          pointRadius: 2,
+          fill: false,
+        }]
+      },
+      options: {
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              unit: 'second',
+              tooltipFormat: 'HH:mm:ss'
+            },
+            title: {
+              display: true,
+              text: 'Time'
+            }
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'Value'
+            },
+            beginAtZero: true
+          }
+        },
+        plugins: {
+          title: {
+            display: true,
+            text: 'Time Series Data'
+          }
+        }
+      }
+    };
+
+    // Render chart
+    new Chart(
+      document.getElementById('timeseriesChart'),
+      config
+    );
 				})
 				.catch((error) => {
 					console.error("There was a problem with the fetch operation:", error);
@@ -46,6 +97,7 @@
                     message.textContent = event.data;
                     messages.appendChild(message);
                 };
+
 		</script>
 	</body>
 </html>
